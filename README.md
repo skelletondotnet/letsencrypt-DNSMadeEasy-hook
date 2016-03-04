@@ -17,7 +17,7 @@ $ export DME_SECRET_KEY='e6a44469-2a9b-4157-ae24-b8dfd2bf8053'
 ## Usage
 
 ```
-$ ./letsencrypt.sh -c -d example.com -t dns-01 -k '/opt/hooks/dnsmadeeasy/hook.py'
+$ ./letsencrypt.sh -c -d example.com -t dns-01 -k 'hooks/dnsmadeeasy/hook.py'
 #
 # !! WARNING !! No main config file found, using default config!
 #
