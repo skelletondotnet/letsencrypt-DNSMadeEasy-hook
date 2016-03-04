@@ -20,8 +20,6 @@ import requests
 import sys
 import time
 
-from tld import get_tld
-
 from email.utils import formatdate
 from datetime import datetime
 from time import mktime
@@ -76,7 +74,8 @@ def _has_dns_propagated(name, token):
 
 # http://api.dnsmadeeasy.com/V2.0/dns/managed/id/{domainname}
 def _get_zone_id(domain):
-    tld = get_tld('http://' + domain)
+    # allow both tlds and subdomains hosted on DNSMadeEasy
+    tld = domain[domain.find('.')+1:]
     url = DME_API_BASE_URL['production'] + "/id/{0}".format(tld)
     r = requests.get(url, headers=DME_HEADERS)
     r.raise_for_status()
@@ -100,10 +99,9 @@ def _get_txt_record_id(zone_id, name):
 # http://api.dnsmadeeasy.com/V2.0/dns/managed/{domain_id}}/records
 def create_txt_record(args):
     domain, token = args[0], args[2]
-    tld = get_tld('http://' + domain)
     zone_id = _get_zone_id(domain)
     name = "{0}.{1}".format('_acme-challenge', domain)
-    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find(tld)-1])
+    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find('.')])
     url = DME_API_BASE_URL['production'] + "/{0}/records".format(zone_id)
     payload = {
         'type': 'TXT',
@@ -138,9 +136,8 @@ def delete_txt_record(args):
         return
 
     zone_id = _get_zone_id(domain)
-    tld = get_tld('http://' + domain)
     name = "{0}.{1}".format('_acme-challenge', domain)
-    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find(tld)-1])
+    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find('.')])
     record_id = _get_txt_record_id(zone_id, short_name)
 
     logger.debug(" + Deleting TXT record name: {0}".format(name))
