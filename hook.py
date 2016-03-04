@@ -1,4 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+# dnsmadeeasy hook for letsencrypt.sh
+# http://www.dnsmadeeasy.com/integration/pdf/API-Docv2.pdf
 
 from __future__ import absolute_import
 from __future__ import division
@@ -20,30 +22,46 @@ import time
 
 from tld import get_tld
 
-# Enable verified HTTPS requests on older Pythons
-# http://urllib3.readthedocs.org/en/latest/security.html
-if sys.version_info[0] == 2:
-    requests.packages.urllib3.contrib.pyopenssl.inject_into_urllib3()
+from email.utils import formatdate
+from datetime import datetime
+from time import mktime
+import hashlib, hmac
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.INFO)
 
+# Calculate RFC 1123 HTTP/1.1 date
+now = datetime.now()
+stamp = mktime(now.timetuple())
+requestDate =  formatdate(
+    timeval     = stamp,
+    localtime   = False,
+    usegmt      = True
+)
+
 try:
-    CF_HEADERS = {
-        'X-Auth-Email': os.environ['CF_EMAIL'],
-        'X-Auth-Key'  : os.environ['CF_KEY'],
+    DME_HEADERS = {
+        'x-dnsme-apiKey': os.environ['DME_API_KEY'],
+        'x-dnsme-hmac': hmac.new(os.environ['DME_SECRET_KEY'].encode('ascii'), requestDate.encode('ascii'), hashlib.sha1).hexdigest(),
+        'x-dnsme-requestDate': requestDate,
         'Content-Type': 'application/json',
     }
 except KeyError:
-    logger.error(" + Unable to locate Cloudflare credentials in environment!")
+    logger.error(" + Unable to locate dnsmadeeasy credentials in environment!")
     sys.exit(1)
 
+DME_API_BASE_URL = {
+    'production': 'https://api.dnsmadeeasy.com/V2.0/dns/managed',
+    'staging': 'http://api.sandbox.dnsmadeeasy.com/V2.0/dns/managed'
+}
 
 def _has_dns_propagated(name, token):
     txt_records = []
     try:
-        dns_response = dns.resolver.query(name, 'TXT')
+        dns_resolver = dns.resolver.Resolver()
+        dns_resolver.nameservers = ['8.8.8.8']
+        dns_response = dns_resolver.query(name, 'TXT')
         for rdata in dns_response:
             for txt_record in rdata.strings:
                 txt_records.append(txt_record)
@@ -56,23 +74,22 @@ def _has_dns_propagated(name, token):
 
     return False
 
-
-# https://api.cloudflare.com/#zone-list-zones
+# http://api.dnsmadeeasy.com/V2.0/dns/managed/id/{domainname}
 def _get_zone_id(domain):
     tld = get_tld('http://' + domain)
-    url = "https://api.cloudflare.com/client/v4/zones?name={0}".format(tld)
-    r = requests.get(url, headers=CF_HEADERS)
+    url = DME_API_BASE_URL['production'] + "/id/{0}".format(tld)
+    r = requests.get(url, headers=DME_HEADERS)
     r.raise_for_status()
-    return r.json()['result'][0]['id']
+    return r.json()['id']
 
 
-# https://api.cloudflare.com/#dns-records-for-a-zone-dns-record-details
-def _get_txt_record_id(zone_id, name, token):
-    url = "https://api.cloudflare.com/client/v4/zones/{0}/dns_records?type=TXT&name={1}&content={2}".format(zone_id, name, token)
-    r = requests.get(url, headers=CF_HEADERS)
+# http://api.dnsmadeeasy.com/V2.0/dns/managed/{domain_id}}/records?type=TXT&recordName={name}
+def _get_txt_record_id(zone_id, name):
+    url = DME_API_BASE_URL['production'] + "/{0}/records?type=TXT&recordName={1}".format(zone_id, name)
+    r = requests.get(url, headers=DME_HEADERS)
     r.raise_for_status()
     try:
-        record_id = r.json()['result'][0]['id']
+        record_id = r.json()['data'][0]['id']
     except IndexError:
         logger.info(" + Unable to locate record named {0}".format(name))
         return
@@ -80,33 +97,40 @@ def _get_txt_record_id(zone_id, name, token):
     return record_id
 
 
-# https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
+# http://api.dnsmadeeasy.com/V2.0/dns/managed/{domain_id}}/records
 def create_txt_record(args):
     domain, token = args[0], args[2]
+    tld = get_tld('http://' + domain)
     zone_id = _get_zone_id(domain)
     name = "{0}.{1}".format('_acme-challenge', domain)
-    url = "https://api.cloudflare.com/client/v4/zones/{0}/dns_records".format(zone_id)
+    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find(tld)-1])
+    url = DME_API_BASE_URL['production'] + "/{0}/records".format(zone_id)
     payload = {
         'type': 'TXT',
-        'name': name,
-        'content': token,
-        'ttl': 1,
+        'name': short_name,
+        'value': token,
+        'ttl': 5,
     }
-    r = requests.post(url, headers=CF_HEADERS, json=payload)
+    r = requests.post(url, headers=DME_HEADERS, json=payload)
     r.raise_for_status()
-    record_id = r.json()['result']['id']
+    record_id = r.json()['id']
     logger.debug("+ TXT record created, ID: {0}".format(record_id))
 
     # give it 10 seconds to settle down and avoid nxdomain caching
     logger.info(" + Settling down for 10s...")
     time.sleep(10)
 
-    while(_has_dns_propagated(name, token) == False):
+    retries=2
+    while(_has_dns_propagated(name, token) == False and retries > 0):
         logger.info(" + DNS not propagated, waiting 30s...")
+        retries-=1
         time.sleep(30)
 
+    if retries <= 0:
+        logger.error("Error resolving TXT record in domain {0}".format(domain))
+        sys.exit(1)
 
-# https://api.cloudflare.com/#dns-records-for-a-zone-delete-dns-record
+# http://api.dnsmadeeasy.com/V2.0/dns/managed/{domain_id}}/records
 def delete_txt_record(args):
     domain, token = args[0], args[2]
     if not domain:
@@ -114,17 +138,19 @@ def delete_txt_record(args):
         return
 
     zone_id = _get_zone_id(domain)
+    tld = get_tld('http://' + domain)
     name = "{0}.{1}".format('_acme-challenge', domain)
-    record_id = _get_txt_record_id(zone_id, name, token)
+    short_name = "{0}.{1}".format('_acme-challenge', domain[0:domain.find(tld)-1])
+    record_id = _get_txt_record_id(zone_id, short_name)
 
     logger.debug(" + Deleting TXT record name: {0}".format(name))
-    url = "https://api.cloudflare.com/client/v4/zones/{0}/dns_records/{1}".format(zone_id, record_id)
-    r = requests.delete(url, headers=CF_HEADERS)
+    url = DME_API_BASE_URL['production'] + "/{0}/records/{1}".format(zone_id, record_id)
+    r = requests.delete(url, headers=DME_HEADERS)
     r.raise_for_status()
 
 
 def deploy_cert(args):
-    domain, privkey_pem, cert_pem, fullchain_pem = args
+    domain, privkey_pem, cert_pem, fullchain_pem, chain_file = args
     logger.info(' + ssl_certificate: {0}'.format(fullchain_pem))
     logger.info(' + ssl_certificate_key: {0}'.format(privkey_pem))
     return
@@ -136,7 +162,7 @@ def main(argv):
         'clean_challenge' : delete_txt_record,
         'deploy_cert'     : deploy_cert,
     }
-    logger.info(" + CloudFlare hook executing: {0}".format(argv[0]))
+    logger.info(" + dnsmadeeasy hook executing: {0}".format(argv[0]))
     ops[argv[0]](argv[1:])
 
 
