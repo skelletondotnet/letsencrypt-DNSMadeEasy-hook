@@ -151,11 +151,15 @@ def deploy_cert(args):
     logger.info(' + ssl_certificate_key: {0}'.format(privkey_pem))
     return
 
+def unchanged_cert(args):
+    return
+
 def main(argv):
     ops = {
         'deploy_challenge': create_txt_record,
         'clean_challenge' : delete_txt_record,
         'deploy_cert'     : deploy_cert,
+        'unchanged_cert'  : unchanged_cert,
     }
     logger.info(" + dnsmadeeasy hook executing: {0}".format(argv[0]))
     ops[argv[0]](argv[1:])
