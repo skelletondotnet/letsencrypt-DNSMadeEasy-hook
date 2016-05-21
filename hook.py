@@ -58,7 +58,6 @@ def _has_dns_propagated(name, token):
     txt_records = []
     try:
         dns_resolver = dns.resolver.Resolver()
-        dns_resolver.nameservers = ['8.8.8.8']
         dns_response = dns_resolver.query(name, 'TXT')
         for rdata in dns_response:
             for txt_record in rdata.strings:
