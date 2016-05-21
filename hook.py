@@ -146,11 +146,10 @@ def delete_txt_record(args):
 
 
 def deploy_cert(args):
-    domain, privkey_pem, cert_pem, fullchain_pem, chain_file = args
+    domain, privkey_pem, cert_pem, fullchain_pem, chain_pem, timestamp = args
     logger.info(' + ssl_certificate: {0}'.format(fullchain_pem))
     logger.info(' + ssl_certificate_key: {0}'.format(privkey_pem))
     return
-
 
 def main(argv):
     ops = {
