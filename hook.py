@@ -54,11 +54,21 @@ DME_API_BASE_URL = {
     'staging': 'http://api.sandbox.dnsmadeeasy.com/V2.0/dns/managed'
 }
 
+try:
+    dns_servers = os.environ['QUERY_DNS_SERVERS']
+    dns_servers = dns_servers.split()
+except KeyError:
+    dns_servers = False
+
 def _has_dns_propagated(name, token):
     txt_records = []
     try:
-        dns_resolver = dns.resolver.Resolver()
-        dns_response = dns_resolver.query(name, 'TXT')
+        if dns_servers:
+            custom_resolver = dns.resolver.Resolver()
+            custom_resolver.nameservers = dns_servers
+            dns_response = custom_resolver.query(name, 'TXT')
+        else:
+            dns_response = dns.resolver.query(name, 'TXT')
         for rdata in dns_response:
             for txt_record in rdata.strings:
                 txt_records.append(txt_record)
