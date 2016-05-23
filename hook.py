@@ -54,12 +54,21 @@ DME_API_BASE_URL = {
     'staging': 'http://api.sandbox.dnsmadeeasy.com/V2.0/dns/managed'
 }
 
+try:
+    dns_servers = os.environ['QUERY_DNS_SERVERS']
+    dns_servers = dns_servers.split()
+except KeyError:
+    dns_servers = False
+
 def _has_dns_propagated(name, token):
     txt_records = []
     try:
-        dns_resolver = dns.resolver.Resolver()
-        dns_resolver.nameservers = ['8.8.8.8']
-        dns_response = dns_resolver.query(name, 'TXT')
+        if dns_servers:
+            custom_resolver = dns.resolver.Resolver()
+            custom_resolver.nameservers = dns_servers
+            dns_response = custom_resolver.query(name, 'TXT')
+        else:
+            dns_response = dns.resolver.query(name, 'TXT')
         for rdata in dns_response:
             for txt_record in rdata.strings:
                 txt_records.append(txt_record)
@@ -147,17 +156,20 @@ def delete_txt_record(args):
 
 
 def deploy_cert(args):
-    domain, privkey_pem, cert_pem, fullchain_pem, chain_file = args
+    domain, privkey_pem, cert_pem, fullchain_pem, chain_pem, timestamp = args
     logger.info(' + ssl_certificate: {0}'.format(fullchain_pem))
     logger.info(' + ssl_certificate_key: {0}'.format(privkey_pem))
     return
 
+def unchanged_cert(args):
+    return
 
 def main(argv):
     ops = {
         'deploy_challenge': create_txt_record,
         'clean_challenge' : delete_txt_record,
         'deploy_cert'     : deploy_cert,
+        'unchanged_cert'  : unchanged_cert,
     }
     logger.info(" + dnsmadeeasy hook executing: {0}".format(argv[0]))
     ops[argv[0]](argv[1:])
