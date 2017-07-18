@@ -161,19 +161,20 @@ def deploy_cert(args):
     logger.info(' + ssl_certificate_key: {0}'.format(privkey_pem))
     return
 
-def do_nothing(args):
-    return
-
 def main(argv):
+    hook_name, args = argv[0], argv[1:]
+
     ops = {
         'deploy_challenge': create_txt_record,
         'clean_challenge' : delete_txt_record,
         'deploy_cert'     : deploy_cert,
-        'unchanged_cert'  : do_nothing,
-        'exit_hook'       : do_nothing,
     }
-    logger.info(" + dnsmadeeasy hook executing: {0}".format(argv[0]))
-    ops[argv[0]](argv[1:])
+
+    if hook_name in ops.keys():
+        logger.info(' + dnsmadeeasy hook executing: %s', hook_name)
+        ops[hook_name](args)
+    else:
+        logger.debug(' + dnsmadeeasy hook not executing: %s', hook_name)
 
 
 if __name__ == '__main__':
