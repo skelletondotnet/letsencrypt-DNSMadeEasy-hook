@@ -71,7 +71,7 @@ def _has_dns_propagated(name, token):
             dns_response = dns.resolver.query(name, 'TXT')
         for rdata in dns_response:
             for txt_record in rdata.strings:
-                txt_records.append(txt_record)
+                txt_records.append(txt_record.decode())
     except dns.exception.DNSException as error:
         return False
 
